@@ -1,5 +1,7 @@
 package ar.edu.itba.ss.neighbor_detection;
 
+import org.springframework.util.Assert;
+
 /**
  * Represents a particle of the simulation.
  */
@@ -53,6 +55,25 @@ public class Particle {
      */
     public boolean isPointLike() {
         return Double.compare(radius, 0.0) == 0;
+    }
+
+    /**
+     * Calculates the distance between {@code this} {@link Particle}, and the given {@code anotherParticle}.
+     *
+     * @param anotherParticle The {@link Particle} to which the distance to it must be calculated.
+     * @return The calculated distance.
+     * @implNote This method takes into account the radius of both {@link Particle}s.
+     */
+    public double distanceTo(Particle anotherParticle) {
+        Assert.notNull(anotherParticle, "Must set another particle to calculate distance");
+
+        final Point point = this.getPosition();
+        final Point anotherPoint = anotherParticle.getPosition();
+        final double x = point.getX() - anotherPoint.getX();
+        final double y = point.getY() - anotherPoint.getY();
+        final double centerDistance = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+
+        return centerDistance - (this.getRadius() + anotherParticle.getRadius());
     }
 
     /**

@@ -23,7 +23,7 @@
         <org.springframework.boot.version>1.5.10.RELEASE</org.springframework.boot.version>
 
         <!-- Execution properties -->
-        <bootstrapClass>ar.edu.itba.ss.neighbor_detection.Main</bootstrapClass>
+        <bootstrapClass>ar.edu.itba.ss.neighbor_detection.NeighborDetector</bootstrapClass>
     </properties>
 
     <dependencyManagement>
