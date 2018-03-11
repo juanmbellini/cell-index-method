@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
@@ -60,8 +61,9 @@ public class NeighborDetector {
         LOGGER.info("Splitting space into a grid....");
         // Split space particles into a grid
         final double factor = M / spaceSideLength;
+        final GridCellFactory gridCellFactory = GridCellFactory.getFactory(M);
         final Map<GridCell, List<Particle>> grid = space.getParticles().stream()
-                .collect(Collectors.groupingBy(p -> getGridPosition(p, factor)));
+                .collect(Collectors.groupingBy(p -> getGridPosition(p, factor, gridCellFactory)));
         LOGGER.info("Finished splitting space.");
 
         LOGGER.info("Calculating related particles...");
@@ -69,7 +71,7 @@ public class NeighborDetector {
         // mapped to the List of Particles in the nearby cells
         final Map<List<Particle>, List<Particle>> relatedParticles = grid.entrySet()
                 .stream()
-                .collect(Collectors.toMap(Map.Entry::getValue, e -> nearParticles(e.getKey(), grid, M)));
+                .collect(Collectors.toMap(Map.Entry::getValue, e -> nearParticles(e.getKey(), grid, M, gridCellFactory)));
         LOGGER.info("Finished calculating related particles.");
 
         LOGGER.info("Calculating neighbors...");
@@ -123,16 +125,18 @@ public class NeighborDetector {
     /**
      * Method that calculates to which cell a particle belongs to.
      *
-     * @param particle The particle to which the calculation must be done.
-     * @param factor   A factor used to calculate the position (i.e space side length / amount of grids per side).
+     * @param particle        The particle to which the calculation must be done.
+     * @param factor          A factor used to calculate the position
+     *                        (i.e space side length / amount of grids per side).
+     * @param gridCellFactory The {@link GridCellFactory} from where {@link GridCell}s will be taken from.
      * @return The {@link GridCell} to which the particle belongs to.
      * @implNote The origin of the grid is the lower left corner.
      */
-    private static GridCell getGridPosition(Particle particle, double factor) {
+    private static GridCell getGridPosition(Particle particle, double factor, GridCellFactory gridCellFactory) {
         final int row = (int) (particle.getPosition().getY() * factor);
         final int column = (int) (particle.getPosition().getX() * factor);
 
-        return new GridCell(row, column); // TODO: maybe we should avoid instantiate this every time
+        return gridCellFactory.getGridCell(row, column);
     }
 
 
@@ -143,11 +147,13 @@ public class NeighborDetector {
      * @param particlesPerCell A {@link Map} holding, for each {@link GridCell},
      *                         a {@link List} of {@link Particle} that belongs to the said {@link GridCell}.
      * @param M                Amount of {@link GridCell}s in a space side
-     *                         (used to know how to take into account periodic boundary conditions)
+     *                         (used to know how to take into account periodic boundary conditions).
+     * @param gridCellFactory  The {@link GridCellFactory} from where {@link GridCell}s will be taken from.
      * @return A {@link List} holding those {@link Particle}s related to the given {@code grid}.
      */
-    private static List<Particle> nearParticles(GridCell grid, Map<GridCell, List<Particle>> particlesPerCell, int M) {
-        final Set<GridCell> neighborCells = neighborGridCell(grid, M);
+    private static List<Particle> nearParticles(GridCell grid, Map<GridCell, List<Particle>> particlesPerCell, int M,
+                                                GridCellFactory gridCellFactory) {
+        final Set<GridCell> neighborCells = neighborGridCell(grid, M, gridCellFactory);
         return particlesPerCell.entrySet().stream()
                 .filter(entry -> neighborCells.contains(entry.getKey()))
                 .map(Map.Entry::getValue)
@@ -158,12 +164,13 @@ public class NeighborDetector {
     /**
      * Calculates which {@link GridCell}s are related (are neighbors) with the given {@code gridCell}.
      *
-     * @param gridCell The {@link GridCell} to which the neighbor cells will be calculated.
-     * @param M        Amount of {@link GridCell}s in a space side
-     *                 (used to know how to take into account periodic boundary conditions)
+     * @param gridCell        The {@link GridCell} to which the neighbor cells will be calculated.
+     * @param M               Amount of {@link GridCell}s in a space side
+     *                        (used to know how to take into account periodic boundary conditions)
+     * @param gridCellFactory The {@link GridCellFactory} from where {@link GridCell}s will be taken from.
      * @return A {@link Set} holding the neighbor {@link GridCell}s of the given {@code gridCell}.
      */
-    private static Set<GridCell> neighborGridCell(GridCell gridCell, int M) {
+    private static Set<GridCell> neighborGridCell(GridCell gridCell, int M, GridCellFactory gridCellFactory) {
         // Upper grid cell
         final int upperRow = Math.floorMod(gridCell.getRow() + 1, M);
         final int upperColumn = Math.floorMod(gridCell.getColumn(), M);
@@ -181,10 +188,10 @@ public class NeighborDetector {
         final int lowerRightColumn = Math.floorMod(gridCell.getColumn() + 1, M);
 
         return Stream.of(
-                new GridCell(upperRow, upperColumn),
-                new GridCell(upperRightRow, upperRightColumn),
-                new GridCell(rightRow, rightColumn),
-                new GridCell(lowerRightRow, lowerRightColumn)
+                gridCellFactory.getGridCell(upperRow, upperColumn),
+                gridCellFactory.getGridCell(upperRightRow, upperRightColumn),
+                gridCellFactory.getGridCell(rightRow, rightColumn),
+                gridCellFactory.getGridCell(lowerRightRow, lowerRightColumn)
         ).collect(Collectors.toSet());
     }
 
@@ -216,8 +223,6 @@ public class NeighborDetector {
             }
             this.row = row;
             this.column = column;
-
-            // TODO: maybe a factory would be better
         }
 
         /**
@@ -251,6 +256,77 @@ public class NeighborDetector {
         @Override
         public int hashCode() {
             return 31 * row + column;
+        }
+    }
+
+    /**
+     * Factory class for {@link GridCell}s, in order to avoid creating a new {@link GridCell} each time it is needed.
+     */
+    private static final class GridCellFactory {
+
+        /**
+         * {@link Map} holding, for each value of {@code M}, the corresponding {@link GridCellFactory}.
+         */
+        private final static Map<Integer, GridCellFactory> factories = new HashMap<>();
+
+        /**
+         * An 2-D array holding each grid cell,
+         * ordered using the {@code row} and {@code column} of the stored {@link GridCell}s.
+         */
+        private final GridCell[][] grid;
+
+        /**
+         * The amount of cells per side.
+         */
+        private final int M;
+
+
+        /**
+         * Constructor.
+         *
+         * @param M The amount of cells per side.
+         */
+        private GridCellFactory(int M) {
+            this.M = M;
+            // Create all GridCells when this factory is created.
+            this.grid = IntStream.range(0, M)
+                    .mapToObj(row ->
+                            IntStream.range(0, M)
+                                    .mapToObj(column -> new GridCell(row, column))
+                                    .toArray(GridCell[]::new))
+                    .toArray(GridCell[][]::new);
+        }
+
+        /**
+         * Retrieves the {@link GridCell} for the given {@code row} and {@code column.}
+         *
+         * @param row    The row of the {@link GridCell}.
+         * @param column The column of the {@link GridCell}.
+         * @return The {@link GridCell} with the given {@code row} and {@code column.}.
+         */
+        private GridCell getGridCell(int row, int column) {
+            if (row < 0 || row >= M || column < 0 || column >= M) {
+                throw new IllegalArgumentException("Row and Column must be values between 0 and " + M + ".");
+            }
+            return grid[row][column];
+        }
+
+        /**
+         * Gets a {@link GridCellFactory} for the given {@code M}.
+         *
+         * @param M The amount of cells per side.
+         * @return The {@link GridCellFactory}.
+         * @implNote This is not synchronized but it does not matter because,
+         * in case there are write interferences at most we will have instantiated twice the same factory,
+         * which is not a problem, as the Map will override with the same value for a given key.
+         */
+        private static GridCellFactory getFactory(int M) {
+            GridCellFactory factory = factories.get(M);
+            if (factory == null) {
+                factory = new GridCellFactory(M);
+                factories.put(M, factory);
+            }
+            return factory;
         }
     }
 }
